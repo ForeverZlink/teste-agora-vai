@@ -19,20 +19,13 @@ const manifestUrlList = self.assetsManifest.assets.map(asset => new URL(asset.ur
 async function onInstall(event) {
     console.info('Service worker: Install');
 
-    const cache = await caches.open(cacheName);
+    // Fetch and cache all matching items from the assets manifest
     const assetsRequests = self.assetsManifest.assets
         .filter(asset => offlineAssetsInclude.some(pattern => pattern.test(asset.url)))
         .filter(asset => !offlineAssetsExclude.some(pattern => pattern.test(asset.url)))
         .map(asset => new Request(asset.url, { integrity: asset.hash, cache: 'no-cache' }));
-
-    try {
-        await Promise.all(assetsRequests.map(req => cache.add(req).catch(err => console.warn('Erro ao adicionar:', req.url, err))));
-        console.info('Service worker: Assets cached successfully.');
-    } catch (error) {
-        console.error('Service worker: Failed to cache assets', error);
-    }
+    await caches.open(cacheName).then(cache => cache.addAll(assetsRequests));
 }
-
 
 async function onActivate(event) {
     console.info('Service worker: Activate');
@@ -45,18 +38,18 @@ async function onActivate(event) {
 }
 
 async function onFetch(event) {
-    if (event.request.method !== 'GET') return fetch(event.request);
+    let cachedResponse = null;
+    if (event.request.method === 'GET') {
+        // For all navigation requests, try to serve index.html from cache,
+        // unless that request is for an offline resource.
+        // If you need some URLs to be server-rendered, edit the following check to exclude those URLs
+        const shouldServeIndexHtml = event.request.mode === 'navigate'
+            && !manifestUrlList.some(url => url === event.request.url);
 
-    const cache = await caches.open(cacheName);
-    let response = await cache.match(event.request);
-
-    if (!response) {
-        try {
-            response = await fetch(event.request);
-        } catch (error) {
-            console.warn("Network request failed, serving index.html");
-            response = await cache.match('index.html'); // Fallback para manter a navegação funcionando
-        }
+        const request = shouldServeIndexHtml ? 'index.html' : event.request;
+        const cache = await caches.open(cacheName);
+        cachedResponse = await cache.match(request);
     }
-    return response;
+
+    return cachedResponse || fetch(event.request);
 }
