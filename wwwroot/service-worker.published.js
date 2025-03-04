@@ -19,13 +19,20 @@ const manifestUrlList = self.assetsManifest.assets.map(asset => new URL(asset.ur
 async function onInstall(event) {
     console.info('Service worker: Install');
 
-    // Fetch and cache all matching items from the assets manifest
+    const cache = await caches.open(cacheName);
     const assetsRequests = self.assetsManifest.assets
         .filter(asset => offlineAssetsInclude.some(pattern => pattern.test(asset.url)))
         .filter(asset => !offlineAssetsExclude.some(pattern => pattern.test(asset.url)))
         .map(asset => new Request(asset.url, { integrity: asset.hash, cache: 'no-cache' }));
-    await caches.open(cacheName).then(cache => cache.addAll(assetsRequests));
+
+    try {
+        await Promise.all(assetsRequests.map(req => cache.add(req).catch(err => console.warn('Erro ao adicionar:', req.url, err))));
+        console.info('Service worker: Assets cached successfully.');
+    } catch (error) {
+        console.error('Service worker: Failed to cache assets', error);
+    }
 }
+
 
 async function onActivate(event) {
     console.info('Service worker: Activate');
